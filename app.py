@@ -5,7 +5,7 @@ import faiss
 import numpy as np
 import fitz  # PyMuPDF
 
-# Load models with Streamlit caching for efficiency
+# Load the question-answering and embedding models with caching for efficiency
 @st.cache_resource
 def load_qa_pipeline():
     return pipeline("text2text-generation", model="google/flan-t5-large")
@@ -22,7 +22,7 @@ qa_pipeline = load_qa_pipeline()
 embedding_model = load_embedding_model()
 summarizer = load_summarizer()
 
-# Define functions to preprocess and retrieve chunks
+# Function to split text into smaller chunks
 def split_text_into_chunks(text, max_length=400):
     sentences = text.split('. ')
     chunks = []
@@ -37,6 +37,7 @@ def split_text_into_chunks(text, max_length=400):
         chunks.append(current_chunk.strip())
     return chunks
 
+# Function to create FAISS index for the document chunks
 def create_faiss_index(chunks):
     chunk_embeddings = embedding_model.encode(chunks)
     dimension = chunk_embeddings.shape[1]
@@ -44,11 +45,14 @@ def create_faiss_index(chunks):
     index.add(np.array(chunk_embeddings))
     return index, chunk_embeddings
 
-def retrieve_top_chunks(query, chunks, index, top_k=5):
+# Function to retrieve top-k chunks and truncate if necessary
+def retrieve_and_truncate_chunks(query, chunks, index, top_k=5, max_length=512):
     query_embedding = embedding_model.encode([query])
     distances, indices = index.search(query_embedding, top_k)
-    top_chunks = " ".join([chunks[idx] for idx in indices[0]])
-    return top_chunks
+    combined_chunks = " ".join([chunks[idx] for idx in indices[0]])
+    
+    # Truncate the combined text to fit within the model’s max token limit
+    return ' '.join(combined_chunks.split()[:max_length])
 
 # Set up Streamlit app interface
 st.title("Enhanced Document Question-Answering and Summarization App")
@@ -78,8 +82,8 @@ if uploaded_file is not None:
     # Accept user query and perform retrieval and answering
     query = st.text_input("Ask a question about the document:")
     if query:
-        # Retrieve top-k relevant chunks based on semantic similarity
-        relevant_text = retrieve_top_chunks(query, chunks, index, top_k=5)
+        # Retrieve top-k relevant chunks based on semantic similarity and truncate
+        relevant_text = retrieve_and_truncate_chunks(query, chunks, index, top_k=5, max_length=512)
         
         # Generate answer using the retrieved relevant context
         prompt = f"Context: {relevant_text}\n\nQuestion: {query}\nAnswer:"
